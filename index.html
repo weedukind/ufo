@@ -1,0 +1,440 @@
+<html>
+	<head>
+	<style>
+div.ufo_textfield_frame {
+	width: 100%;
+	position: relative;
+}
+input.ufo_input_input {
+	width: 100%;
+	height: 40px;
+	border: 2px solid black;
+	border-radius: 5px;
+	padding: 0 5px;
+	font-size: 16px;
+}
+input.ufo_input_input_error {
+	border-color: red;
+}
+div.ufo_input_error_container {
+	position: absolute;
+	bottom: -5px;
+	right: 0;
+}
+div.ufo_hint_frame {
+	position: absolute;
+	white-space: nowrap;
+	top: 0;
+	right: 0;
+	background-color: rgba(255, 0, 0, 0.7);
+	height: 35px;
+	line-height: 35px;
+	border-radius: 15px;
+	padding: 0 20px;
+	color: white;
+	font-size: 16px;
+	z-index: 10;
+}
+
+div.ufo_form_frame {
+	display: grid;
+	grid-template-columns: auto auto;
+}
+div.ufo_form_cell_key {
+	
+}
+div.ufo_form_cell_content {
+	
+}
+	</style>
+	<script>
+
+var ufo = {};
+(function () {
+
+	var UFO = this;
+
+	this.log = function (msg) {
+		console.log(msg);
+	}
+
+	this.extend = function (conf) {
+		conf = conf || {}	
+		var constructor = conf.construct || function () {}
+		var parent      = conf.parent || function () {} // parent's constructor function
+		var attributes  = conf.attributes || {}
+//		attributes.parent = parent;
+		attributes.class   = conf.class || "unnamed"
+		constructor.class = conf.class;
+		constructor.prototype = Object.create(parent.prototype);
+
+		for(var key in attributes) {
+			constructor.prototype[key] = attributes[key];
+		}
+		return constructor;
+	}
+
+	this.Element = this.extend({
+		class : "Element",
+		construct : function (data) {
+			this.events = {}
+			for (var key in data) {
+				this[key] = data[key];
+			}
+		},
+		attributes : {
+//			events : {},
+			rendered : false,
+			container : null, // html parent
+//			parent : null, // ufo parent,
+			error_container : null,
+			error_message : null,
+			throw : function (code, msg) {
+				
+				var exception = {
+					class : this.class,
+					code  : code,
+					msg   : msg || "-"
+				}
+				UFO.log(exception);
+				throw exception;
+				
+			},
+			fire : function (type) {
+				if ("undefined" === typeof this.events[type]) {
+					return;
+				}
+				for (var id in this.events[type]) {
+					this.events[type][id](this, id);
+				}
+			},
+			register : function (type, id, handler) {
+				if ("undefined" === typeof this.events[type]) {
+					this.events[type] = {}
+				}
+				this.events[type][id] = handler;
+			},
+			show : function () {
+				this.fire("show_about");
+				if ("undefined" === typeof this.container) {
+					this.throw(1, "No container specified. Rendering aborted.");
+				}
+				this.container.innerHTML = "";
+				this.render();
+				this.rendered = true;
+				this.fire("show_done");
+			},
+			kill : function () {
+				this.fire("kill_about");
+				this.container.innerHTML = "";
+				this.events = [];
+				this.fire("kill_done");
+			},
+			render : function () {},
+			show_error_message : function (error) {
+				if (null === this.error_container) {
+					UFO.log(error);
+					return;
+				}
+				this.error_message = new UFO.Hint({
+					container : this.error_container,
+					text : error
+				});
+				this.error_message.show();
+			},
+			remove_error_message : function () {
+				if (null !== this.error_message) {
+					this.error_message.kill();
+				}
+			},
+		}
+	});
+
+	this.Hint = this.extend({
+		class : "Hint",
+		construct : function (data) {
+			UFO.Element.call(this, data);
+		},
+		parent : this.Element,
+		attributes : {
+			render : function () {
+				this.frame = document.createElement("div");
+				this.frame.className = "ufo_hint_frame";
+				this.frame.innerHTML = this.text;
+				this.container.appendChild(this.frame);
+			}
+		}
+	});
+
+
+	this.Input = this.extend({
+		class  : "Input",
+		construct : function (data) {
+			var that = this;
+			UFO.Element.call(this, data);
+			this.register("show_done", "ufo_refresh", function () {
+				that.set_value(that.value);
+			});
+		},
+		parent : this.Element,
+		attributes : {
+			value : null,
+			rules : [],
+			get_value : function () {
+				return this.value;
+			},
+			// by default no check is performed
+			set_value : function (value) {
+				this.value = value;
+				if (true === this.rendered) {
+					this.refresh();
+				}
+			},
+			refresh : function () {},
+			check : function (value) {
+				this.remove_error();
+				this.remove_error_message();
+				for (var index in this.rules) {
+					var check = this.rules[index](value);
+					if (true !== check) {
+						this.show_error();
+						this.show_error_message(check);
+						return false;
+					}
+				}
+				return true;
+			},
+		}
+	});
+
+	this.Textfield = this.extend({
+		class  : "Textfield",
+		construct : function (data) {
+			var that = this;
+that.debug = Math.random();
+			UFO.Input.call(this, data);
+			this.rules = this.rules.map(function (rule) {
+				if ("function" === typeof rule) {
+					return rule;
+				}
+				if ("string" === typeof rule) {
+					if ("function" === typeof that["rule_"+rule]) {
+						return that["rule_"+rule];
+					}
+					throw(2, "unknown rule: "+rule);
+				}
+				if (null === rule) {
+				throw(1, "rule cannot be null");
+				}
+				if ("object" === typeof rule) {
+				}
+				throw(1, "unknown type of rule: "+(typeof rule));
+
+			});
+		},
+		parent : this.Input,
+		attributes : {
+			input : null,
+			render : function () {
+				var that = this;
+				this.frame = document.createElement("div");
+				this.frame.className = "ufo_textfield_frame";
+				this.container.appendChild(this.frame);
+				this.input = document.createElement("input");
+				this.input.className = "ufo_input_input";
+				this.frame.appendChild(this.input);
+				this.input.onchange = function () {
+					if (that.check(this.value)) {
+						that.value = this.value;
+console.log("CHANGE IN INPUT");
+						that.fire("change");
+					}
+				}
+//				this.set_value(this.value);
+//				this.error_container = this.frame;
+				this.error_container = document.createElement("div");
+				this.error_container.className = "ufo_input_error_container";
+				this.frame.appendChild(this.error_container);
+			},
+			refresh : function () {
+				this.input.value = this.value;
+			},
+			rule_integer : function (value) {
+				if (null !== value.match(/^-?[0-9]*$/)) {
+					return true;
+				}
+				return "not a valid integer";
+			},
+			rule_posint : function (value) {
+				if (null !== value.match(/^[0-9]*$/)) {
+					return true;
+				}
+				return "not a valid positiv integer";
+			},
+			show_error : function () {
+				this.input.classList.add("ufo_input_input_error");
+			},
+			remove_error : function () {
+				this.input.classList.remove("ufo_input_input_error");
+			},
+			set_value : function (value) {
+				console.log(value);
+				if (null === value) {
+//console.log("set to NULL");
+					value = "";
+				}
+				UFO.Input.prototype.set_value.call(this, value);
+			}
+		}
+	});
+
+	this.Container = this.extend({
+		class  : "Container",
+		parent : this.Input,
+		construct : function (data) {
+			var child;
+			UFO.Input.call(this, data);
+			if ("object" !== typeof this.children) {
+				this.throw(1, "Type of children is "+(typeof this.children)+" but should be object.");
+			}
+			var that = this;
+
+			for (var key in this.children) {
+				(function (key) {
+					if (!(that.children[key] instanceof UFO.Element)) {
+						that.children[key] = new that.children[key].type(that.children[key]);
+					}
+					that.children[key].register("change", "ufo_parent", function (element) {
+						that.fire("change");
+					});
+
+				}(key));
+			}
+		},
+		attributes : {
+			children : {},
+			show : function () {
+				this.fire("show_about");
+
+				for (var key in this.children) {
+					this.children[key].show();
+				}
+
+				this.rendered = true;
+				this.fire("show_done");
+			},
+			set_value : function (value) {
+
+				for (var key in this.children) {
+					this.children[key].set_value(null === value ? null : ("undefined" === typeof value[key] ? null : value[key]));
+				}
+			},
+			get_value : function () {
+				var value = {}
+				for (var key in this.children) {
+					value[key] = this.children[key].get_value();
+				}
+				return value;
+			}
+		}
+	});
+
+	this.Form = this.extend({
+		class  : "Form",
+		parent : this.Container,
+		construct : function (data) {
+console.log("FORM");
+			UFO.Container.call(this, data);
+		},
+		attributes : {
+			show : function () {
+				this.fire("show_about");
+				this.render();
+
+				for (var key in this.children) {
+					this.children[key].show();
+				}
+
+				this.rendered = true;
+				this.fire("show_done");
+			},
+
+			render : function () {
+
+				this.frame = document.createElement("div");
+				this.frame.className = "ufo_form_frame";
+				this.container.appendChild(this.frame);
+
+				var row, cell, child;
+				for (var key in this.children) {
+
+					child = this.children[key];
+
+					cell = document.createElement("div");
+					cell.className = "ufo_form_cell_key";
+					this.frame.appendChild(cell);
+					cell.innerHTML = ("string" === typeof child.label) ? child.label : key;
+
+					cell = document.createElement("div");
+					cell.className = "ufo_form_cell_content";
+					this.frame.appendChild(cell);
+
+					child.container = cell;
+				}
+			}
+		}
+
+	});
+
+
+}).apply(ufo);
+
+
+
+window.onload = function () {
+	var form = new ufo.Form({
+		container : document.getElementById("e1"),
+		children : {
+			e1 : {
+				type : ufo.Textfield,
+				rules : [
+					"integer"
+				]
+			},
+			e2 : {
+				type : ufo.Textfield,
+				rules : [
+					"posint"
+				]
+			},
+			e3 : {
+				type : ufo.Textfield,
+				rules : [
+					"posint"
+				]
+			}
+		}
+		
+	});
+	form.show();
+	form.register("change", "test", function (element) {
+console.log(element.get_value());
+	});
+
+	form.set_value({
+		e1 : 111,
+		e2 : 222
+	});
+}
+	</script>
+	</head>
+	<body>
+<div id="root" style="width: 400px; height: 400px; background-color: lightblue;">
+<div id="e1" style="border: 1px solid green;"></div>
+<div id="e2" style="border: 1px solid blue;"></div>
+<div id="e3" style="border: 1px solid yellow;"></div>
+</div>
+	</body>
+
+</html>
+
